@@ -56,6 +56,7 @@ class CocoEvaluator(object):
 
             coco_eval.cocoDt = coco_dt
             coco_eval.params.imgIds = list(img_ids)
+            # print('imgtoanns', self.coco_gt.imgToAnns[0])
             img_ids, eval_imgs = evaluate(coco_eval)
 
             self.eval_imgs[iou_type].append(eval_imgs)
@@ -227,6 +228,7 @@ def evaluate(self):
         print('useSegm (deprecated) is not None. Running {} evaluation'.format(p.iouType))
     # print('Evaluate annotation type *{}*'.format(p.iouType))
     p.imgIds = list(np.unique(p.imgIds))
+    # print(p.imgIds)
     if p.useCats:
         p.catIds = list(np.unique(p.catIds))
     p.maxDets = sorted(p.maxDets)
@@ -244,15 +246,20 @@ def evaluate(self):
         (imgId, catId): computeIoU(imgId, catId)
         for imgId in p.imgIds
         for catId in catIds}
-
+    # print('ious',self.ious)
     evaluateImg = self.evaluateImg
+    # print('evaluateImg', evaluateImg)
     maxDet = p.maxDets[-1]
+    # print('maxDet', maxDet)
     evalImgs = [
         evaluateImg(imgId, catId, areaRng, maxDet)
         for catId in catIds
         for areaRng in p.areaRng
         for imgId in p.imgIds
     ]
+    # print('evalImgs', evalImgs[0:20])
+    # print('areaRng', p.areaRng)
+    # raise ValueError
     # this is NOT in the pycocotools code, but could be done outside
     evalImgs = np.asarray(evalImgs).reshape(len(catIds), len(p.areaRng), len(p.imgIds))
     self._paramsEval = copy.deepcopy(self.params)

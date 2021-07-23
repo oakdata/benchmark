@@ -28,6 +28,7 @@ srun -p ${PARTITION} \
     --ntasks-per-node=${GPUS_PER_NODE} \
     --cpus-per-task=${CPUS_PER_TASK} \
     --kill-on-bad-exit=1 \
+    --time=7-8:00:00 \
     ${SRUN_ARGS} \
     ${RUN_COMMAND}
 
