@@ -106,9 +106,10 @@ def get_args_parser():
     parser.add_argument('--focal_alpha', default=0.25, type=float)
 
     # dataset parameters
-    parser.add_argument('--dataset_file', default='coco')
-    parser.add_argument('--coco_path', default='./data/coco', type=str)
+    parser.add_argument('--dataset_file', default = 'oak') #default='coco')
+    parser.add_argument('--coco_path', default='/project_data/held/jianrenw', type=str) # './data/coco'
     parser.add_argument('--coco_panoptic_path', type=str)
+    parser.add_argument('--oak_path', default='/project_data/held/jianrenw', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
 
     parser.add_argument('--output_dir', default='',
@@ -122,6 +123,10 @@ def get_args_parser():
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--num_workers', default=2, type=int)
     parser.add_argument('--cache_mode', default=False, action='store_true', help='whether to cache images on memory')
+
+    # Selection mode
+    parser.add_argument('--train_mode', default='offline', help='Training mode options {offline, incremental}')
+    parser.add_argument('--selection_index', default=0, help='Index for selection')
 
     return parser
 
@@ -269,7 +274,12 @@ def main(args):
 
     print("Start training")
     start_time = time.time()
-    for epoch in range(args.start_epoch, args.epochs):
+
+    if args.train_mode == 'incremental':
+        end_epoch = dataset_train.data_length
+    else:
+        end_epoch = args.epochs
+    for epoch in range(args.start_epoch, end_epoch):
         if args.distributed:
             sampler_train.set_epoch(epoch)
         train_stats = train_one_epoch(
@@ -288,30 +298,79 @@ def main(args):
                     'epoch': epoch,
                     'args': args,
                 }, checkpoint_path)
+        if args.train_mode == 'offline':
+            test_stats, coco_evaluator = evaluate(
+                model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
+            )
 
-        test_stats, coco_evaluator = evaluate(
-            model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
-        )
+            log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                        **{f'test_{k}': v for k, v in test_stats.items()},
+                        'epoch': epoch,
+                        'n_parameters': n_parameters}
 
-        log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
-                     **{f'test_{k}': v for k, v in test_stats.items()},
-                     'epoch': epoch,
-                     'n_parameters': n_parameters}
+            if args.output_dir and utils.is_main_process():
+                with (output_dir / "log.txt").open("a") as f:
+                    f.write(json.dumps(log_stats) + "\n")
 
-        if args.output_dir and utils.is_main_process():
-            with (output_dir / "log.txt").open("a") as f:
-                f.write(json.dumps(log_stats) + "\n")
+                # for evaluation logs
+                if coco_evaluator is not None:
+                    (output_dir / 'eval').mkdir(exist_ok=True)
+                    if "bbox" in coco_evaluator.coco_eval:
+                        filenames = ['latest.pth']
+                        if epoch % 50 == 0:
+                            filenames.append(f'{epoch:03}.pth')
+                        for name in filenames:
+                            torch.save(coco_evaluator.coco_eval["bbox"].eval,
+                                    output_dir / "eval" / name)
+        if args.train_mode == 'incremental':
+            if (epoch + 1) % 16 == 0:
+                test_stats, coco_evaluator = evaluate(
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
+                )
 
-            # for evaluation logs
-            if coco_evaluator is not None:
-                (output_dir / 'eval').mkdir(exist_ok=True)
-                if "bbox" in coco_evaluator.coco_eval:
-                    filenames = ['latest.pth']
-                    if epoch % 50 == 0:
-                        filenames.append(f'{epoch:03}.pth')
-                    for name in filenames:
-                        torch.save(coco_evaluator.coco_eval["bbox"].eval,
-                                   output_dir / "eval" / name)
+                log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                            **{f'test_{k}': v for k, v in test_stats.items()},
+                            'epoch': epoch,
+                            'n_parameters': n_parameters}
+
+                if args.output_dir and utils.is_main_process():
+                    with (output_dir / "log.txt").open("a") as f:
+                        f.write(json.dumps(log_stats) + "\n")
+
+                    # for evaluation logs
+                    if coco_evaluator is not None:
+                        (output_dir / 'eval').mkdir(exist_ok=True)
+                        if "bbox" in coco_evaluator.coco_eval:
+                            filenames = ['latest.pth']
+                            if epoch % 50 == 0:
+                                filenames.append(f'{epoch:03}.pth')
+                            for name in filenames:
+                                torch.save(coco_evaluator.coco_eval["bbox"].eval,
+                                        output_dir / "eval" / name)
+            args.selection_index +=1
+            dataset_train = build_dataset(image_set='train', args=args)
+            # dataset_val = build_dataset(image_set='val', args=args)
+
+            if args.distributed:
+                if args.cache_mode:
+                    sampler_train = samplers.NodeDistributedSampler(dataset_train)
+                    # sampler_val = samplers.NodeDistributedSampler(dataset_val, shuffle=False)
+                else:
+                    sampler_train = samplers.DistributedSampler(dataset_train)
+                    # sampler_val = samplers.DistributedSampler(dataset_val, shuffle=False)
+            else:
+                sampler_train = torch.utils.data.RandomSampler(dataset_train)
+                # sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+
+            batch_sampler_train = torch.utils.data.BatchSampler(
+                sampler_train, args.batch_size, drop_last=True)
+
+            data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
+                                        collate_fn=utils.collate_fn, num_workers=args.num_workers,
+                                        pin_memory=True)
+        # data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
+        #                             drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers,
+        #                             pin_memory=True)
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))

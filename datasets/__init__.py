@@ -21,6 +21,8 @@ def get_coco_api_from_dataset(dataset):
             dataset = dataset.dataset
     if isinstance(dataset, CocoDetection):
         return dataset.coco
+    else:
+        return dataset
 
 
 def build_dataset(image_set, args):
@@ -30,4 +32,7 @@ def build_dataset(image_set, args):
         # to avoid making panopticapi required for coco
         from .coco_panoptic import build as build_coco_panoptic
         return build_coco_panoptic(image_set, args)
+    if args.dataset_file == 'oak':
+        from .oak import build as build_oak
+        return build_oak(image_set, args)
     raise ValueError(f'dataset {args.dataset_file} not supported')
