@@ -20,7 +20,8 @@ import util.misc as utils
 from datasets.coco_eval import CocoEvaluator
 from datasets.panoptic_eval import PanopticEvaluator
 from datasets.data_prefetcher import data_prefetcher
-
+import json
+import pickle
 
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
@@ -80,7 +81,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir):
+def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, output_dir, checkpoint_name = None, epoch_number = None):
     model.eval()
     criterion.eval()
 
@@ -137,7 +138,6 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
                 res_pano[i]["file_name"] = file_name
 
             panoptic_evaluator.update(res_pano)
-
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
@@ -147,9 +147,61 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         panoptic_evaluator.synchronize_between_processes()
 
     # accumulate predictions from all images
+    all_categories = list([i['id'] for i in base_ds.dataset['categories']])
+    all_categories_names = list([i['name'] for i in base_ds.dataset['categories']])
+    overall_results = dict()
     if coco_evaluator is not None:
-        coco_evaluator.accumulate()
-        coco_evaluator.summarize()
+        for category_index, category in enumerate(all_categories):
+            print(f'Processing_Category_{category}_{all_categories_names[category_index]}')
+            for iou_type in iou_types:
+                coco_evaluator.coco_eval[iou_type]._paramsEval.catIds = [category]
+                # coco_evaluator.coco_eval[iou_type].params.catIds = [63]
+                # print(base_ds.dataset['categories'])
+                coco_evaluator.accumulate()
+                coco_evaluator.summarize()
+                # print(coco_evaluator.coco_eval[iou_type].eval)
+                # print(coco_evaluator.coco_eval[iou_type]._paramsEval)
+                # print(coco_evaluator.coco_eval[iou_type]._paramsEval.useCats)
+                # print(coco_evaluator.coco_eval[iou_type]._paramsEval.catIds)
+                # print(coco_evaluator.coco_eval[iou_type].evalImgs)
+                # return
+                overall_results[f'{category}_{all_categories_names[category_index]}'] = coco_evaluator.coco_eval[iou_type].stats.tolist()
+        print('*'*40)
+        print('Averaged Results')
+        for iou_type in iou_types:
+            coco_evaluator.coco_eval[iou_type]._paramsEval.catIds = all_categories
+            coco_evaluator.coco_eval[iou_type].params.catIds = all_categories
+            # print(base_ds.dataset['categories'])
+            coco_evaluator.accumulate()
+            coco_evaluator.summarize()
+            overall_results['all'] = coco_evaluator.coco_eval[iou_type].stats.tolist()
+    
+        # Save the results if given output directory on eval
+        if output_dir and checkpoint_name:
+            print(overall_results)
+            model_num = int(checkpoint_name.split('.')[0].split('t')[-1])
+            if not os.path.exists(output_dir):
+                os.makedir(output_dir)
+            json_path = os.path.join(output_dir,f'{model_num}_results.json')
+            with open(json_path, 'w') as fp:
+                json.dump(overall_results, fp,indent=4)
+            # Save the coco_evaluator class in .pkl format
+            pkl_path = os.path.join(output_dir,f'{model_num}_results.pkl')
+            with open(pkl_path, 'wb') as outp:
+                pickle.dump(coco_evaluator, outp, pickle.HIGHEST_PROTOCOL)
+        elif output_dir and (epoch_number!=None):
+            print(overall_results)
+            model_num = int(epoch_number)
+            if not os.path.exists(output_dir):
+                os.makedir(output_dir)
+            json_path = os.path.join(output_dir,f'{model_num}_results.json')
+            with open(json_path, 'w') as fp:
+                json.dump(overall_results, fp,indent=4)
+            # Save the coco_evaluator class in .pkl format
+            pkl_path = os.path.join(output_dir,f'{model_num}_results.pkl')
+            with open(pkl_path, 'wb') as outp:
+                pickle.dump(coco_evaluator, outp, pickle.HIGHEST_PROTOCOL)
+
     panoptic_res = None
     if panoptic_evaluator is not None:
         panoptic_res = panoptic_evaluator.summarize()

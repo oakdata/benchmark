@@ -24,6 +24,7 @@ import datasets.samplers as samplers
 from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate, train_one_epoch
 from models import build_model
+import os
 
 
 def get_args_parser():
@@ -110,6 +111,7 @@ def get_args_parser():
     parser.add_argument('--coco_path', default='/project_data/held/jianrenw', type=str) # './data/coco'
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--oak_path', default='/project_data/held/jianrenw', type=str)
+    parser.add_argument('--pascal_path', default='/project_data/held/jianrenw/datasets/VOCdevkit/VOC2012', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
 
     parser.add_argument('--output_dir', default='',
@@ -127,6 +129,7 @@ def get_args_parser():
     # Selection mode
     parser.add_argument('--train_mode', default='offline', help='Training mode options {offline, incremental}')
     parser.add_argument('--selection_index', default=0, help='Index for selection')
+    parser.add_argument('--iterations', default=1, help='Number of Iterations for Each Sample')
 
     return parser
 
@@ -156,6 +159,13 @@ def main(args):
 
     dataset_train = build_dataset(image_set='train', args=args)
     dataset_val = build_dataset(image_set='val', args=args)
+
+    # Make the evaluation folder
+    if args.output_dir:
+        if not os.path.exists(args.output_dir):
+            os.mkdir(args.output_dir)
+        if not os.path.exists(os.path.join(args.output_dir, 'eval')):
+            os.mkdir(os.path.join(args.output_dir, 'eval'))
 
     if args.distributed:
         if args.cache_mode:
@@ -261,13 +271,22 @@ def main(args):
             args.start_epoch = checkpoint['epoch'] + 1
         # check the resumed model
         if not args.eval:
+            checkpoint_path, checkpoint_name = os.path.split(args.resume)
             test_stats, coco_evaluator = evaluate(
-                model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
+                model, criterion, postprocessors, data_loader_val, base_ds, device, output_dir = os.path.join(args.output_dir, 'eval'),checkpoint_name = f'checkpoint{args.start_epoch-1}.pth' 
             )
     
     if args.eval:
+        # Make the output eval directory the same as where the ckpt is stored
+        checkpoint_path, checkpoint_name = os.path.split(args.resume)
+        
+        output_path = os.path.join(checkpoint_path, 'eval')
+
+        if not os.path.exists(output_path):
+            os.makedir(output_path)
+
         test_stats, coco_evaluator = evaluate(model, criterion, postprocessors,
-                                              data_loader_val, base_ds, device, args.output_dir)
+                                              data_loader_val, base_ds, device, output_dir = output_path, checkpoint_name = f'checkpoint{args.start_epoch-1}.pth' )
         if args.output_dir:
             utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval.pth")
         return
@@ -279,6 +298,7 @@ def main(args):
         end_epoch = dataset_train.data_length
     else:
         end_epoch = args.epochs
+    
     for epoch in range(args.start_epoch, end_epoch):
         if args.distributed:
             sampler_train.set_epoch(epoch)
@@ -288,7 +308,9 @@ def main(args):
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
             # extra checkpoint before LR drop and every 5 epochs
-            if (epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 5 == 0:
+            if ((epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 5 == 0) and not(args.train_mode == 'incremental'):
+                checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
+            elif ((epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 1600 == 0) and (args.train_mode == 'incremental'):
                 checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
@@ -300,7 +322,7 @@ def main(args):
                 }, checkpoint_path)
         if args.train_mode == 'offline':
             test_stats, coco_evaluator = evaluate(
-                model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
+                model, criterion, postprocessors, data_loader_val, base_ds, device, output_dir = os.path.join(args.output_dir, 'eval'), epoch_number = epoch
             )
 
             log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
@@ -325,7 +347,7 @@ def main(args):
         if args.train_mode == 'incremental':
             if (epoch + 1) % 16 == 0:
                 test_stats, coco_evaluator = evaluate(
-                    model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
+                    model, criterion, postprocessors, data_loader_val, base_ds, device, output_dir = os.path.join(args.output_dir, 'eval'), epoch_number = epoch
                 )
 
                 log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},

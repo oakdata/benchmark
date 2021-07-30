@@ -30,7 +30,7 @@ from pycocotools.coco import COCO
 from collections import defaultdict
 
 
-def get_train_test_label_overlap(test_class_path = '/project_data/held/jianrenw/debug/relabel/train_cat.json', train_class_path = '/project_data/held/jianrenw/debug/relabel/train_cat.json'):
+def get_train_test_label_overlap(test_class_path = '/project_data/held/jianrenw/debug/relabel/test_cat.json', train_class_path = '/project_data/held/jianrenw/debug/relabel/train_cat.json'):
     f = open(test_class_path,)
     test_data = json.load(f)
     f.close()
@@ -54,6 +54,8 @@ def get_train_test_label_overlap(test_class_path = '/project_data/held/jianrenw/
             count += 1
         else:
             continue
+    print('-----------------------------------------------------------------------------------------')
+    print('Class Dictionary', class_dictionary, count)
     return class_dictionary
         
 

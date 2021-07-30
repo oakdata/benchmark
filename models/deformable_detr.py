@@ -447,7 +447,10 @@ def build(args):
         num_classes = 250
 
     if args.dataset_file == 'oak':
-        num_classes = 102
+        num_classes = 82
+    
+    if args.dataset_file =='pascal':
+        num_classes = 20
     device = torch.device(args.device)
 
     backbone = build_backbone(args)

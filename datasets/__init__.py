@@ -35,4 +35,7 @@ def build_dataset(image_set, args):
     if args.dataset_file == 'oak':
         from .oak import build as build_oak
         return build_oak(image_set, args)
+    if args.dataset_file == 'pascal':
+        from .pascal_voc import build as build_pascal
+        return build_pascal(image_set, args)
     raise ValueError(f'dataset {args.dataset_file} not supported')
