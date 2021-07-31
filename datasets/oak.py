@@ -71,8 +71,10 @@ class OAKDetection(COCO):
         f.close()
         self.data_length = len(data)
         if selection_index != -1:
-            data = data[selection_index:selection_index+1]
-
+            try:
+                data = data[selection_index:selection_index+16]
+            except: 
+                data = data[selection_index:]
         # Get paths to images
         assert len(data) != 0, f'Error loading, selected files is {data}'
         self.list_of_img_paths = list()

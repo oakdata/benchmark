@@ -111,7 +111,8 @@ def get_args_parser():
     parser.add_argument('--coco_path', default='/project_data/held/jianrenw', type=str) # './data/coco'
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--oak_path', default='/project_data/held/jianrenw', type=str)
-    parser.add_argument('--pascal_path', default='/project_data/held/jianrenw/datasets/VOCdevkit/VOC2012', type=str)
+    # parser.add_argument('--pascal_path', default='/project_data/held/jianrenw/datasets/VOCdevkit/VOC2012', type=str)
+    parser.add_argument('--pascal_path', default='/grogu/user/jianrenw/data/VOCdevkit', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
 
     parser.add_argument('--output_dir', default='',
@@ -295,7 +296,7 @@ def main(args):
     start_time = time.time()
 
     if args.train_mode == 'incremental':
-        end_epoch = dataset_train.data_length
+        end_epoch = int(dataset_train.data_length/16) + 1
     else:
         end_epoch = args.epochs
     
@@ -303,7 +304,7 @@ def main(args):
         if args.distributed:
             sampler_train.set_epoch(epoch)
         train_stats = train_one_epoch(
-            model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm)
+            model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm, args, sampler_train)
         lr_scheduler.step()
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
@@ -369,7 +370,7 @@ def main(args):
                             for name in filenames:
                                 torch.save(coco_evaluator.coco_eval["bbox"].eval,
                                         output_dir / "eval" / name)
-            args.selection_index +=1
+            args.selection_index +=16
             dataset_train = build_dataset(image_set='train', args=args)
             # dataset_val = build_dataset(image_set='val', args=args)
 
@@ -405,3 +406,5 @@ if __name__ == '__main__':
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)
+    # if args.output_dir:
+    #     Path(args.output_dir).mkdir(paren

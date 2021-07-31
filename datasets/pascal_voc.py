@@ -64,8 +64,13 @@ def load_voc_instances(dirname: str, split: str, class_names: Union[List[str], T
         split (str): one of "train", "test", "val", "trainval"
         class_names: list or tuple of class names
     """
-    with open(os.path.join(dirname, "ImageSets", "Main", split + ".txt")) as f:
+    with open(os.path.join(dirname, 'VOC2012', "ImageSets", "Main", split + ".txt")) as f:
         fileids = np.loadtxt(f, dtype=np.str)
+    
+    with open(os.path.join(dirname, 'VOC2007', "ImageSets", "Main", split + ".txt")) as f:
+        fileids_2 = np.loadtxt(f, dtype=np.str)
+
+    fileids = fileids + fileids_2
     # with PathManager.open(os.path.join(dirname, "ImageSets", "Main", split + ".txt")) as f:
     #     fileids = np.loadtxt(f, dtype=np.str)
 
@@ -119,29 +124,64 @@ class PascalDetection(COCO):
         
         
 
-        with open(os.path.join(dirname, "ImageSets", "Main", selection_set + ".txt")) as f:
+        # with open(os.path.join(dirname, "ImageSets", "Main", selection_set + ".txt")) as f:
         
-            fileids = np.loadtxt(f, dtype=np.str)
+        #     fileids = np.loadtxt(f, dtype=np.str)
+        if selection_set == 'train':
+            with open(os.path.join(dirname, 'VOC2012', "ImageSets", "Main", 'trainval' + ".txt")) as f:
+                fileids = np.loadtxt(f, dtype=np.str)
+            
+            with open(os.path.join(dirname, 'VOC2007', "ImageSets", "Main", 'trainval' + ".txt")) as f:
+                fileids_2 = np.loadtxt(f, dtype=np.str)
+            
+            print('*'*40,type(fileids))
+            fileids = fileids.tolist() + fileids_2.tolist()
+        if selection_set == 'val':
+            # with open(os.path.join(dirname, 'VOC2012', "ImageSets", "Main", 'trainval' + ".txt")) as f:
+            #     fileids = np.loadtxt(f, dtype=np.str)
+            
+            with open(os.path.join(dirname, 'VOC2007', "ImageSets", "Main", 'test' + ".txt")) as f:
+                fileids = np.loadtxt(f, dtype=np.str)
+        
 
-        annotation_dirname = os.path.join(dirname, "Annotations/")
+        
 
-        self.data_length = len(fileids)
+        annotation_dirname = os.path.join(dirname, 'VOC2012', "Annotations/")
+        annotation_dirname_2 = os.path.join(dirname, 'VOC2007', "Annotations/")
+
+        self.data_length = len(fileids) #+ len(fileids_2)
 
         assert self.data_length > 0, 'Error: Data length is 0!'
 
         # dicts = []
 
         if selection_index != -1:
-            fileids = fileids[selection_index:selection_index+1]
+            try:
+                # if selection_index >= len(fileids):
+                #     fileids_2 = fileids_2[selection_index-len(fileids):selection_index-len(fileids) + 16]
+                # else:
+                fileids = fileids[selection_index:selection_index+16]
+            except: 
+                fileids = fileids[selection_index:]
         
         self.list_of_img_paths = list()
         self.list_of_annotation_paths = list()
         self.ids = list()
 
         for fileid in fileids:
-            self.list_of_annotation_paths.append(os.path.join(annotation_dirname, fileid + ".xml"))
-            self.list_of_img_paths.append(os.path.join(dirname, "JPEGImages", fileid + ".jpg"))
-            self.ids.append(fileid)
+            if len(fileid) <=6:
+                self.list_of_annotation_paths.append(os.path.join(annotation_dirname_2, fileid + ".xml"))
+                self.list_of_img_paths.append(os.path.join(dirname,'VOC2007', "JPEGImages", fileid + ".jpg"))
+                self.ids.append(fileid)
+            else:
+                self.list_of_annotation_paths.append(os.path.join(annotation_dirname, fileid + ".xml"))
+                self.list_of_img_paths.append(os.path.join(dirname, 'VOC2012',"JPEGImages", fileid + ".jpg"))
+                self.ids.append(fileid)
+        
+        # for fileid in fileids_2:
+        #     self.list_of_annotation_paths.append(os.path.join(annotation_dirname_2, fileid + ".xml"))
+        #     self.list_of_img_paths.append(os.path.join(dirname, 'VOC2007', "JPEGImages", fileid + ".jpg"))
+        #     self.ids.append(fileid)
 
             # jpeg_file = os.path.join(dirname, "JPEGImages", fileid + ".jpg")
 
