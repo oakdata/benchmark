@@ -20,7 +20,17 @@ if __name__ == '__main__':
     plot_ap_class = True
     ap_selection = 1
 
-    path_to_jsons = '/project_data/held/jianrenw/helen/Deformable-DETR/output/test_4/eval'
+    path_to_jsons = '/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/incremental_oak_ft_fb_50iter_1/eval'
+    #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/incremental_oak_finetune_frozenbackbone_1/eval'
+    #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/incremental_oak_finetune_1/eval'
+    #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/offline_oak_finetune_fb_1/eval'
+    #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/offline_oak_finetune_1/eval'
+    #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/incremental_oak_1/eval'
+    #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/incremental_oak_finetune_1/eval'
+    #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/oracle_fullpascal_1/eval'
+    #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/incremental_oak_finetune_1/eval'
+    #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/incremental_oak_1/eval'
+    #'/project_data/held/jianrenw/helen/Deformable-DETR/output/test_4/eval'
     #'/project_data/held/jianrenw/helen/Deformable-DETR/output/incremental_4/eval'
     #'/project_data/held/jianrenw/helen/Deformable-DETR/output/test_4/eval'
 
@@ -38,6 +48,7 @@ if __name__ == '__main__':
         epoch_numbers.append(int(json_file.split('_')[0]))
 
         # Read the json file
+        print(json_file)
         with open(os.path.join(path_to_jsons, json_file)) as f:
             data = json.load(f)
         

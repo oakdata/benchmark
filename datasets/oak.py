@@ -29,8 +29,8 @@ import json
 from pycocotools.coco import COCO
 from collections import defaultdict
 
-
-def get_train_test_label_overlap(test_class_path = '/project_data/held/jianrenw/debug/relabel/test_cat.json', train_class_path = '/project_data/held/jianrenw/debug/relabel/train_cat.json'):
+def get_train_test_label_overlap(test_class_path = '/grogu/user/jianrenw/data/relabel/test_cat.json', train_class_path = '/grogu/user/jianrenw/data/relabel/train_cat.json'):
+    # def get_train_test_label_overlap(test_class_path = '/project_data/held/jianrenw/debug/relabel/test_cat.json', train_class_path = '/project_data/held/jianrenw/debug/relabel/train_cat.json'):
     f = open(test_class_path,)
     test_data = json.load(f)
     f.close()
@@ -438,16 +438,17 @@ def build(image_set, args):
     assert root.exists(), f'provided OAK path {root} does not exist'
     mode = 'instances'
 
-    PATHS = {
-        "train": (os.path.join(root, 'debug', 'relabel', 'train_frame.json')),
-        "val": (os.path.join(root, 'debug', 'relabel' , 'test_frame.json'))
-        }
     # PATHS = {
-    #     "train": (root / "train2017", root / "annotations" / f'{mode}_train2017.json'),
-    #     "val": (root / "val2017", root / "annotations" / f'{mode}_val2017.json'),
-    # }
+    #     "train": (os.path.join(root, 'debug', 'relabel', 'train_frame.json')),
+    #     "val": (os.path.join(root, 'debug', 'relabel' , 'test_frame.json'))
+    #     }
+    PATHS = {
+        "train": (os.path.join(root, 'relabel', 'train_frame.json')),
+        "val": (os.path.join(root, 'relabel' , 'test_frame.json'))
+        }
 
-    path_to_images = os.path.join(root, 'new_data')
+    # path_to_images = os.path.join(root, 'new_data')
+    path_to_images = os.path.join(root, 'jianren_oak')
 
     path_to_annotations = os.path.join(root, 'new_anno')
 

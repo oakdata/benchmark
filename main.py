@@ -52,6 +52,8 @@ def get_args_parser():
     # Model parameters
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
+    parser.add_argument('--frozen_backbone', type=str, default=None,
+                        help="Whether backbone is frozen or not.")
 
     # * Backbone
     parser.add_argument('--backbone', default='resnet50', type=str,
@@ -121,6 +123,7 @@ def get_args_parser():
                         help='device to use for training / testing')
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--resume', default='', help='resume from checkpoint')
+    parser.add_argument('--finetune', default='', help='finetune from checkpoint')
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N',
                         help='start epoch')
     parser.add_argument('--eval', action='store_true')
@@ -226,7 +229,7 @@ def main(args):
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
 
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
         model_without_ddp = model.module
 
     if args.dataset_file == "coco_panoptic":
@@ -240,6 +243,20 @@ def main(args):
         checkpoint = torch.load(args.frozen_weights, map_location='cpu')
         model_without_ddp.detr.load_state_dict(checkpoint['model'])
 
+    if args.finetune:
+        if args.resume.startswith('https'):
+            checkpoint = torch.hub.load_state_dict_from_url(
+                args.finetune, map_location='cpu', check_hash=True)
+        else:
+            checkpoint = torch.load(args.finetune, map_location='cpu')
+            new_state_dict={k:v if v.size()==model_without_ddp.state_dict()[k].size()  else  model_without_ddp.state_dict()[k] for k,v in zip(model_without_ddp.state_dict().keys(), checkpoint['model'].values()) 
+                 }
+        # missing_keys, unexpected_keys = model_without_ddp.load_state_dict(checkpoint['model'], strict=False)
+        missing_keys, unexpected_keys = model_without_ddp.load_state_dict(new_state_dict, strict=False)
+        
+    if args.frozen_backbone:
+        [x.requires_grad_(False) for x in model_without_ddp.backbone.parameters()]
+    
     output_dir = Path(args.output_dir)
     if args.resume:
         if args.resume.startswith('https'):
@@ -311,7 +328,7 @@ def main(args):
             # extra checkpoint before LR drop and every 5 epochs
             if ((epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 5 == 0) and not(args.train_mode == 'incremental'):
                 checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
-            elif ((epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 1600 == 0) and (args.train_mode == 'incremental'):
+            elif ((epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 10 == 0) and (args.train_mode == 'incremental'):
                 checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
@@ -346,7 +363,8 @@ def main(args):
                             torch.save(coco_evaluator.coco_eval["bbox"].eval,
                                     output_dir / "eval" / name)
         if args.train_mode == 'incremental':
-            if (epoch + 1) % 16 == 0:
+            if True:
+                # if (epoch + 1) % 16 == 0:
                 test_stats, coco_evaluator = evaluate(
                     model, criterion, postprocessors, data_loader_val, base_ds, device, output_dir = os.path.join(args.output_dir, 'eval'), epoch_number = epoch
                 )
@@ -407,4 +425,4 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     main(args)
     # if args.output_dir:
-    #     Path(args.output_dir).mkdir(paren
+    #     Path(args.output_dir).mkdir(par
