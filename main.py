@@ -26,6 +26,8 @@ from engine import evaluate, train_one_epoch
 from models import build_model
 import os
 
+from models.ewc import EWC
+
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Deformable DETR Detector', add_help=False)
@@ -131,12 +133,59 @@ def get_args_parser():
     parser.add_argument('--cache_mode', default=False, action='store_true', help='whether to cache images on memory')
 
     # Selection mode
-    parser.add_argument('--train_mode', default='offline', help='Training mode options {offline, incremental}')
+    parser.add_argument('--train_mode', default='offline', help='Training mode options {offline, incremental, ic2, ewc}')
     parser.add_argument('--selection_index', default=0, help='Index for selection')
     parser.add_argument('--iterations', default=1, help='Number of Iterations for Each Sample')
 
+    # For ic2 setting
+    parser.add_argument('--ic2_memory', default=[], help='Icarl2 Memory')
+    parser.add_argument('--ic2_memory_size', default=5, help='Icarl2 Memory Size')
+    parser.add_argument('--ic2_cmratio', default=0, help='Icarl2 Memory CM Ratio')
+
+    # For ewc setting
+    parser.add_argument('--ewc_obj', default=None, help='EWC Object')
+    parser.add_argument('--ewc_importance', default=1000, help='EWC Importance')
+
+    
     return parser
 
+def update_ic2_memory(valid,img_memory,num_pc):
+    for data_i, data in enumerate(valid.dataset['annotations']):
+        
+        if not data['from_memory']:
+            filename = valid.dataset['images'][int(data['image_id'])]['file_name']
+            # filename = data['file_name']
+            # objs = data['annotations']
+            # for obj in objs:
+            class_id = int(data['category_id'])
+            ele = (filename,data)
+            print(class_id)
+            if img_memory[class_id] == None:
+                img_memory[class_id] = []
+                img_memory[class_id].append(ele)     
+            elif len(img_memory[class_id]) < num_pc:
+                img_memory[class_id].append(ele)          
+            else:
+                del_id = random.randint(0,num_pc)
+                if del_id != num_pc:
+                    img_memory[class_id][del_id] = ele
+    return img_memory
+
+def get_cmratio(records):
+    cur_cnt,mem_cnt = 0,0
+    for record in records.dataset['annotations']:
+        if record['from_memory']:
+            mem_cnt += 1
+        else:
+            cur_cnt += 1
+
+    if mem_cnt == 0:
+        cm_ratio = 0
+    elif cur_cnt / mem_cnt > 1:
+        cm_ratio = 1
+    else:
+        cm_ratio = cur_cnt / mem_cnt  
+    return cm_ratio
 
 def main(args):
     utils.init_distributed_mode(args)
@@ -258,6 +307,10 @@ def main(args):
         [x.requires_grad_(False) for x in model_without_ddp.backbone.parameters()]
     
     output_dir = Path(args.output_dir)
+
+    if args.train_mode in ['ic2','ewc']:
+        args.ic2_memory = [None] * len(list(dataset_train.cat_to_id_dict.keys()))
+        
     if args.resume:
         if args.resume.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(
@@ -287,6 +340,13 @@ def main(args):
                 lr_scheduler.base_lrs = list(map(lambda group: group['initial_lr'], optimizer.param_groups))
             lr_scheduler.step(lr_scheduler.last_epoch)
             args.start_epoch = checkpoint['epoch'] + 1
+            args.selection_index = checkpoint['args'].selection_index
+            if args.train_mode == 'ic2':
+                args.ic2_memory = checkpoint['args'].ic2_memory
+                args.ic2_cmratio = checkpoint['args'].ic2_cmratio
+            if args.train_mode == 'ewc':
+                args.ewc_obj = checkpoint['args'].ewc_obj
+                args.ewc_importance = checkpoint['args'].ewc_importance
         # check the resumed model
         if not args.eval:
             checkpoint_path, checkpoint_name = os.path.split(args.resume)
@@ -312,23 +372,38 @@ def main(args):
     print("Start training")
     start_time = time.time()
 
-    if args.train_mode == 'incremental':
-        end_epoch = int(dataset_train.data_length/16) + 1
-    else:
+    if args.train_mode == 'offline':
         end_epoch = args.epochs
+    else:
+        #elif args.train_mode == 'incremental':
+        end_epoch = int(dataset_train.data_length/16) + 1
+
+
+    
     
     for epoch in range(args.start_epoch, end_epoch):
         if args.distributed:
             sampler_train.set_epoch(epoch)
+        
+        if args.train_mode == 'ic2':
+            args.cmratio = get_cmratio(dataset_train)
+        
+        if args.train_mode == 'ewc':
+            # Initialize the ewc object
+            # Check length of memory
+            memory_ratio = get_cmratio(dataset_train)
+            args.ewc_obj = None
+            if memory_ratio > 0:
+                args.ewc_obj = EWC(model,data_loader_train,importance = args.ewc_importance, iterations = args.iterations, device = device, criterion = criterion)
         train_stats = train_one_epoch(
             model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm, args, sampler_train)
         lr_scheduler.step()
         if args.output_dir:
             checkpoint_paths = [output_dir / 'checkpoint.pth']
             # extra checkpoint before LR drop and every 5 epochs
-            if ((epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 5 == 0) and not(args.train_mode == 'incremental'):
+            if ((epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 5 == 0) and (args.train_mode == 'offline'):
                 checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
-            elif ((epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 10 == 0) and (args.train_mode == 'incremental'):
+            elif ((epoch + 1) % args.lr_drop == 0 or (epoch + 1) % 10 == 0) and not(args.train_mode == 'offline'):
                 checkpoint_paths.append(output_dir / f'checkpoint{epoch:04}.pth')
             for checkpoint_path in checkpoint_paths:
                 utils.save_on_master({
@@ -389,6 +464,104 @@ def main(args):
                                 torch.save(coco_evaluator.coco_eval["bbox"].eval,
                                         output_dir / "eval" / name)
             args.selection_index +=16
+            dataset_train = build_dataset(image_set='train', args=args)
+            # dataset_val = build_dataset(image_set='val', args=args)
+
+            if args.distributed:
+                if args.cache_mode:
+                    sampler_train = samplers.NodeDistributedSampler(dataset_train)
+                    # sampler_val = samplers.NodeDistributedSampler(dataset_val, shuffle=False)
+                else:
+                    sampler_train = samplers.DistributedSampler(dataset_train)
+                    # sampler_val = samplers.DistributedSampler(dataset_val, shuffle=False)
+            else:
+                sampler_train = torch.utils.data.RandomSampler(dataset_train)
+                # sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+
+            batch_sampler_train = torch.utils.data.BatchSampler(
+                sampler_train, args.batch_size, drop_last=True)
+
+            data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
+                                        collate_fn=utils.collate_fn, num_workers=args.num_workers,
+                                        pin_memory=True)
+        if args.train_mode == 'ic2':
+            test_stats, coco_evaluator = evaluate(
+                model, criterion, postprocessors, data_loader_val, base_ds, device, output_dir = os.path.join(args.output_dir, 'eval'), epoch_number = epoch
+            )
+
+            log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                        **{f'test_{k}': v for k, v in test_stats.items()},
+                        'epoch': epoch,
+                        'n_parameters': n_parameters}
+
+            if args.output_dir and utils.is_main_process():
+                with (output_dir / "log.txt").open("a") as f:
+                    f.write(json.dumps(log_stats) + "\n")
+
+                # for evaluation logs
+                if coco_evaluator is not None:
+                    (output_dir / 'eval').mkdir(exist_ok=True)
+                    if "bbox" in coco_evaluator.coco_eval:
+                        filenames = ['latest.pth']
+                        if epoch % 50 == 0:
+                            filenames.append(f'{epoch:03}.pth')
+                        for name in filenames:
+                            torch.save(coco_evaluator.coco_eval["bbox"].eval,
+                                    output_dir / "eval" / name)
+            args.selection_index +=16
+
+            # Update memory
+            args.ic2_memory = update_ic2_memory(dataset_train, args.ic2_memory, args.ic2_memory_size)
+
+            dataset_train = build_dataset(image_set='train', args=args)
+            # dataset_val = build_dataset(image_set='val', args=args)
+
+            if args.distributed:
+                if args.cache_mode:
+                    sampler_train = samplers.NodeDistributedSampler(dataset_train)
+                    # sampler_val = samplers.NodeDistributedSampler(dataset_val, shuffle=False)
+                else:
+                    sampler_train = samplers.DistributedSampler(dataset_train)
+                    # sampler_val = samplers.DistributedSampler(dataset_val, shuffle=False)
+            else:
+                sampler_train = torch.utils.data.RandomSampler(dataset_train)
+                # sampler_val = torch.utils.data.SequentialSampler(dataset_val)
+
+            batch_sampler_train = torch.utils.data.BatchSampler(
+                sampler_train, args.batch_size, drop_last=True)
+
+            data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
+                                        collate_fn=utils.collate_fn, num_workers=args.num_workers,
+                                        pin_memory=True)
+        if args.train_mode == 'ewc':
+            test_stats, coco_evaluator = evaluate(
+                model, criterion, postprocessors, data_loader_val, base_ds, device, output_dir = os.path.join(args.output_dir, 'eval'), epoch_number = epoch
+            )
+
+            log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
+                        **{f'test_{k}': v for k, v in test_stats.items()},
+                        'epoch': epoch,
+                        'n_parameters': n_parameters}
+
+            if args.output_dir and utils.is_main_process():
+                with (output_dir / "log.txt").open("a") as f:
+                    f.write(json.dumps(log_stats) + "\n")
+
+                # for evaluation logs
+                if coco_evaluator is not None:
+                    (output_dir / 'eval').mkdir(exist_ok=True)
+                    if "bbox" in coco_evaluator.coco_eval:
+                        filenames = ['latest.pth']
+                        if epoch % 50 == 0:
+                            filenames.append(f'{epoch:03}.pth')
+                        for name in filenames:
+                            torch.save(coco_evaluator.coco_eval["bbox"].eval,
+                                    output_dir / "eval" / name)
+            args.selection_index +=16
+
+            # Update memory
+            args.ic2_memory = update_ic2_memory(dataset_train, args.ic2_memory, args.ic2_memory_size)
+
             dataset_train = build_dataset(image_set='train', args=args)
             # dataset_val = build_dataset(image_set='val', args=args)
 

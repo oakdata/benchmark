@@ -217,7 +217,7 @@ class SetCriterion(nn.Module):
         self.losses = losses
         self.focal_alpha = focal_alpha
 
-    def loss_labels(self, outputs, targets, indices, num_boxes, log=True):
+    def loss_labels(self, outputs, targets, indices, num_boxes, log=True, train_settings = None):
         """Classification loss (NLL)
         targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
         """
@@ -235,8 +235,79 @@ class SetCriterion(nn.Module):
         target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
 
         target_classes_onehot = target_classes_onehot[:,:,:-1]
+
+        if train_settings:
+            if train_settings['train_mode'] != 'ic2':
+                raise ValueError('None ic2 type methods not supproted')
+
+            labels = train_settings['labels']
+            cm_ratio = train_settings['cm_ratio']
+
+            bg_loss,cls_loss = 0,0
+            bg_cnt, cls_cnt  = 0,0
+        
+            # Iterate through elements in batch and check if they are from memory
+
+            # Go through label of image and check if it is from memory
+            for label_idx, label in enumerate(labels):
+
+                # If image is from memory
+                if label:
+                    cls_src_logits = src_logits[label_idx:label_idx+1][target_classes[label_idx:label_idx+1][:] != self.num_classes]
+                    cls_target_classes_onehot = target_classes_onehot[label_idx:label_idx+1][target_classes[label_idx:label_idx+1][:] != self.num_classes]
+
+                    cls_loss_ce = sigmoid_focal_loss(cls_src_logits, cls_target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * src_logits.shape[1]
+
+                    cls_loss += cls_loss_ce * cm_ratio
+
+                    cls_cnt +=1
+                    
+
+                # If image not from memory
+                else:
+                    cls_src_logits = src_logits[label_idx:label_idx+1][target_classes[label_idx:label_idx+1][:] != self.num_classes]
+                    cls_target_classes_onehot = target_classes_onehot[label_idx:label_idx+1][target_classes[label_idx:label_idx+1][:] != self.num_classes]
+
+                    bg_src_logits = src_logits[label_idx:label_idx+1][target_classes[label_idx:label_idx+1][:] == self.num_classes]
+                    bg_target_classes_onehot = target_classes_onehot[label_idx:label_idx+1][target_classes[label_idx:label_idx+1][:] == self.num_classes]
+
+                    bg_loss_ce = sigmoid_focal_loss(bg_src_logits, bg_target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * src_logits.shape[1]
+                    cls_loss_ce = sigmoid_focal_loss(cls_src_logits, cls_target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * src_logits.shape[1]
+
+                    bg_loss += bg_loss_ce
+                    cls_loss += cls_loss_ce
+
+                    cls_cnt +=1
+                    bg_cnt +=1
+
+            if bg_cnt != 0:
+                bg_loss = bg_loss
+                if cm_ratio >= 0 and cm_ratio < 1:
+                    bg_loss *= 2
+            if cls_cnt != 0:
+                cls_loss = cls_loss
+
+            losses = {'loss_ce': cls_loss + bg_loss}
+
+            if log:
+                # TODO this should probably be a separate loss, not hacked in this one here
+                losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
+
+            return losses
+            # Get the background loss
+            # bg_loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * src_logits.shape[1]
+        # Get the class loss
+
         loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * src_logits.shape[1]
         losses = {'loss_ce': loss_ce}
+        '''
+        bg_ind = src_logits.shape[2]
+        target_classes_onehot = target_classes_onehot[:][target_classes_o==bg_ind]
+        for element in curr_or_mem:
+            if element == 0:
+                
+            elif element == 
+        '''
 
         if log:
             # TODO this should probably be a separate loss, not hacked in this one here
@@ -244,7 +315,7 @@ class SetCriterion(nn.Module):
         return losses
 
     @torch.no_grad()
-    def loss_cardinality(self, outputs, targets, indices, num_boxes):
+    def loss_cardinality(self, outputs, targets, indices, num_boxes,train_settings = None):
         """ Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes
         This is not really a loss, it is intended for logging purposes only. It doesn't propagate gradients
         """
@@ -257,7 +328,7 @@ class SetCriterion(nn.Module):
         losses = {'cardinality_error': card_err}
         return losses
 
-    def loss_boxes(self, outputs, targets, indices, num_boxes):
+    def loss_boxes(self, outputs, targets, indices, num_boxes,train_settings = None):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
            targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
            The target boxes are expected in format (center_x, center_y, h, w), normalized by the image size.
@@ -278,7 +349,7 @@ class SetCriterion(nn.Module):
         losses['loss_giou'] = loss_giou.sum() / num_boxes
         return losses
 
-    def loss_masks(self, outputs, targets, indices, num_boxes):
+    def loss_masks(self, outputs, targets, indices, num_boxes,train_settings = None):
         """Compute the losses related to the masks: the focal loss and the dice loss.
            targets dicts must contain the key "masks" containing a tensor of dim [nb_target_boxes, h, w]
         """
@@ -329,7 +400,7 @@ class SetCriterion(nn.Module):
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, targets, indices, num_boxes, **kwargs)
 
-    def forward(self, outputs, targets):
+    def forward(self, outputs, targets,train_setting = None):
         """ This performs the loss computation.
         Parameters:
              outputs: dict of tensors, see the output specification of the model for the format
@@ -352,6 +423,7 @@ class SetCriterion(nn.Module):
         losses = {}
         for loss in self.losses:
             kwargs = {}
+            kwargs['train_settings'] = train_setting
             losses.update(self.get_loss(loss, outputs, targets, indices, num_boxes, **kwargs))
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
@@ -366,6 +438,7 @@ class SetCriterion(nn.Module):
                     if loss == 'labels':
                         # Logging is enabled only for the last layer
                         kwargs['log'] = False
+                        kwargs['train_settings'] = train_setting
                     l_dict = self.get_loss(loss, aux_outputs, targets, indices, num_boxes, **kwargs)
                     l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
@@ -384,6 +457,7 @@ class SetCriterion(nn.Module):
                 if loss == 'labels':
                     # Logging is enabled only for the last layer
                     kwargs['log'] = False
+                    kwargs['train_settings'] = train_setting
                 l_dict = self.get_loss(loss, enc_outputs, bin_targets, indices, num_boxes, **kwargs)
                 l_dict = {k + f'_enc': v for k, v in l_dict.items()}
                 losses.update(l_dict)
