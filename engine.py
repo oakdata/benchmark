@@ -35,6 +35,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
     metric_logger.add_meter('grad_norm', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
 
+    
     for iteration in range(int(global_args.iterations)):
         header = 'Epoch: [{}]'.format(epoch) + '| Iteration: [{}]'.format(iteration)
         print_freq = 10
@@ -43,12 +44,22 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         prefetcher = data_prefetcher(data_loader, device, prefetch=True)
         samples, targets = prefetcher.next()
 
+        if global_args.train_mode == 'ic2':
+            train_setting = {'train_mode': global_args.train_mode, 'labels': [t["from_memory"] for t in targets], 'cm_ratio': global_args.ic2_cmratio}
+        else:
+            train_setting = None
+
+
         # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
         for _ in metric_logger.log_every(range(len(data_loader)), print_freq, header):
             outputs = model(samples)
-            loss_dict = criterion(outputs, targets)
+            loss_dict = criterion(outputs, targets, train_setting = train_setting)
             weight_dict = criterion.weight_dict
             losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
+            
+            # Check if train method is ewc
+            if global_args.train_mode == 'ewc' and global_args.ewc_obj != None:
+                losses = losses + global_args.ewc_obj.importance * global_args.ewc_obj.penalty(model)
 
             # reduce losses over all GPUs for logging purposes
             loss_dict_reduced = utils.reduce_dict(loss_dict)
@@ -266,3 +277,4 @@ def evaluate(model, criterion, postprocessors, data_loader, base_ds, device, out
         stats['PQ_th'] = panoptic_res["Things"]
         stats['PQ_st'] = panoptic_res["Stuff"]
     return stats, coco_evaluator
+

@@ -20,7 +20,9 @@ if __name__ == '__main__':
     plot_ap_class = True
     ap_selection = 1
 
-    path_to_jsons = '/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/incremental_oak_ft_fb_50iter_1/eval'
+    # path_to_jsons = '/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/ewc_oak_ft_10iter_bs8_1/eval'
+    path_to_jsons = '/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/ic2_oak_ft_10iter_bs8_1/eval'
+    #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/incremental_oak_ft_fb_50iter_1/eval'
     #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/incremental_oak_finetune_frozenbackbone_1/eval'
     #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/incremental_oak_finetune_1/eval'
     #'/grogu/user/jianrenw/helen/Detr-Continual-Learning/output/offline_oak_finetune_fb_1/eval'
