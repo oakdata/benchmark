@@ -29,6 +29,9 @@ import json
 from pycocotools.coco import COCO
 from collections import defaultdict
 
+import copy
+import random
+
 def get_train_test_label_overlap(test_class_path = '/grogu/user/jianrenw/data/relabel/test_cat.json', train_class_path = '/grogu/user/jianrenw/data/relabel/train_cat.json'):
     # def get_train_test_label_overlap(test_class_path = '/project_data/held/jianrenw/debug/relabel/test_cat.json', train_class_path = '/project_data/held/jianrenw/debug/relabel/train_cat.json'):
     f = open(test_class_path,)
@@ -61,7 +64,7 @@ def get_train_test_label_overlap(test_class_path = '/grogu/user/jianrenw/data/re
 
 class OAKDetection(COCO):
 # class OAKDetection(TvCocoDetection):
-    def __init__(self, img_folder, ann_file, transforms, return_masks, selection_set, cache_mode=False, local_rank=0, local_size=1,selection_index=-1):
+    def __init__(self, img_folder, ann_file, transforms, return_masks, selection_set, cache_mode=False, local_rank=0, local_size=1,selection_index=-1,train_settings = None):
         
         super().__init__()
         # Get the names of fromes from selection_set
@@ -75,8 +78,23 @@ class OAKDetection(COCO):
                 data = data[selection_index:selection_index+16]
             except: 
                 data = data[selection_index:]
+        
+        # # Get the train_settings
+        # if train_settings:
+        #     if train_settings['train_mode'] == 'ic2':
+        #         self.ic2_memory = train_settings['memory']
+        #         for taski, imgs in enumerate(self.ic2_memory):
+        #             if imgs != None:
+        #                 imgid = random.randint(0,len(imgs)-1)
+        #                 img  = imgs[imgid]
+        #                 filename, bbox = img
+        #                 # record = {}
+        #                 # record['file_name'] = filename
+        #                 # record['image_id'] = 'memory' + str(taski)
+
         # Get paths to images
         assert len(data) != 0, f'Error loading, selected files is {data}'
+
         self.list_of_img_paths = list()
         self.list_of_annotation_paths = list()
         self.ids = list()
@@ -88,16 +106,32 @@ class OAKDetection(COCO):
             self.ids.append(os.path.join(img_folder, video_name,'源文件', frame[:-4]+'jpg'))
             self.list_of_annotation_paths.append(os.path.join(ann_file, video_name,'标注结果', frame[:-4]+'json'))
         
+        # Get the train_settings
+        if train_settings:
+            if train_settings['train_mode'] == 'ic2':
+                self.ic2_memory = train_settings['memory']
+                for taski, imgs in enumerate(self.ic2_memory):
+                    if imgs != None:
+                        imgid = random.randint(0,len(imgs)-1)
+
+                        # print('image-------------', imgs)
+                        img  = imgs[imgid]
+                        filename, bbox = img
+                        self.list_of_img_paths.append(filename)
+                        self.ids.append(filename)
+
+                        # annotation_boundingbox = {'category':,
+                        #                         'bbox2d'}
+                        self.list_of_annotation_paths.append(bbox)
+                        # record = {}
+                        # record['file_name'] = filename
+                        # record['image_id'] = 'memory' + str(taski)
+
         assert len(self.list_of_img_paths) > 0, f'no images found at {img_folder}'
         assert len(self.list_of_annotation_paths) > 0, f'no images found at {ann_file}'
 
-
-
-
         # Get annotations to images
         self.cat_to_id_dict = get_train_test_label_overlap()
-
-
 
         # super(CocoDetection, self).__init__(img_folder, ann_file,
         #                                     cache_mode=cache_mode, local_rank=local_rank, local_size=local_size)
@@ -117,55 +151,110 @@ class OAKDetection(COCO):
         for ann_id, ann_path in enumerate(self.list_of_annotation_paths):
 
             # Extract annotations
-            f = open(ann_path,)
-            data = json.load(f)
-            f.close()
-            try:
-            # labels = data[0]['DataList'][0]['labels']
-                labels = data[0]['labels']
-            except: 
-                labels = data['DataList'][0]['labels']
-            # imgToAnns[]
-
-            objs = []
-            for label in labels:
-                # obj_id = label['id']
-                # # check if obj_id is in list of desired objects 
-                # try:
-                #     assert int(obj_id) >= 0
-                # except:
-                #     print('invalid obj_id:', obj_id)
-                #     continue
-                category = label['category']
-                box2d = label['box2d']
-
-                if category in self.cat_to_id_dict.keys():
-                    small_x = min(box2d['x1'],box2d['x2'])
-                    small_y = min(box2d['y1'],box2d['y2'])
-                    obj = {
-                        "bbox": [small_x, small_y, abs(box2d['x2']-box2d['x1']), abs(box2d['y2']-box2d['y1'])],
-                        # "bbox": [box2d['x1'], box2d['y1'], box2d['x2']-box2d['x1'], box2d['y2']-box2d['y1']],
-                        #"bbox_mode": BoxMode.XYXY_ABS,
-                        # "category_id": data_map[ limitset[category] ],
-                        "area": abs(box2d['x2']-box2d['x1'])*abs(box2d['y2']-box2d['y1']),
-                        "iscrowd": 0,
-                        "category_id": self.cat_to_id_dict[category],#label['id'],
-                        "image_id": ann_id,
-                        "id": label_count
-                        }
-                    objs.append(obj)
-                    imgToAnns[ann_id].append(obj)
-                    anns[label_count] = obj
-                    catToImgs[self.cat_to_id_dict[category]].append(ann_id)
-                    self.dataset['annotations'].append(obj)
-                    label_count +=1
+            if type(ann_path) == str:
+                f = open(ann_path,)
+                data = json.load(f)
+                f.close()
+                try:
+                # labels = data[0]['DataList'][0]['labels']
+                    labels = data[0]['labels']
+                except: 
+                    labels = data['DataList'][0]['labels']
+                from_memory = False
             
-            # Set up images
-            imgs[ann_id] = {
-                            "file_name": self.list_of_img_paths[ann_id],
-                            "id": ann_id
-            }
-            self.dataset['images'].append(imgs[ann_id])
+                # objs = []
+                for label in labels:
+                    # obj_id = label['id']
+                    # # check if obj_id is in list of desired objects 
+                    # try:
+                    #     assert int(obj_id) >= 0
+                    # except:
+                    #     print('invalid obj_id:', obj_id)
+                    #     continue
+                    category = label['category']
+                    box2d = label['box2d']
+
+                    if category in self.cat_to_id_dict.keys():
+                        small_x = min(box2d['x1'],box2d['x2'])
+                        small_y = min(box2d['y1'],box2d['y2'])
+                        obj = {
+                            "bbox": [small_x, small_y, abs(box2d['x2']-box2d['x1']), abs(box2d['y2']-box2d['y1'])],
+                            # "bbox": [box2d['x1'], box2d['y1'], box2d['x2']-box2d['x1'], box2d['y2']-box2d['y1']],
+                            #"bbox_mode": BoxMode.XYXY_ABS,
+                            # "category_id": data_map[ limitset[category] ],
+                            "area": abs(box2d['x2']-box2d['x1'])*abs(box2d['y2']-box2d['y1']),
+                            "iscrowd": 0,
+                            "category_id": self.cat_to_id_dict[category],#label['id'],
+                            "image_id": ann_id,
+                            "id": label_count,
+                            "from_memory": from_memory
+                            }
+                        # objs.append(obj)
+                        imgToAnns[ann_id].append(obj)
+                        anns[label_count] = obj
+                        catToImgs[self.cat_to_id_dict[category]].append(ann_id)
+                        self.dataset['annotations'].append(obj)
+                        label_count +=1
+                
+                # Set up images
+                imgs[ann_id] = {
+                                "file_name": self.list_of_img_paths[ann_id],
+                                "id": ann_id
+                }
+                self.dataset['images'].append(imgs[ann_id])
+            
+            else:
+                # Not a string, which means that it is memory
+                label = ann_path
+                from_memory = True
+                # for label in labels:
+                # category = label['category']
+                # box2d = label['box2d']
+
+                # if category in self.cat_to_id_dict.keys():
+                # small_x = min(box2d['x1'],box2d['x2'])
+                # small_y = min(box2d['y1'],box2d['y2'])
+
+                label['from_memory'] = True
+                # obj = copy.deepcopy(label)
+                obj = {
+                    "bbox": label['bbox'],
+                    "area": label['area'],
+                    "iscrowd": label['iscrowd'],
+                    "category_id": label['category_id'],#label['id'],
+                    "image_id": ann_id,
+                    "id": label_count,
+                    "from_memory": from_memory
+                    }
+                # obj = {
+                #     "bbox": [small_x, small_y, abs(box2d['x2']-box2d['x1']), abs(box2d['y2']-box2d['y1'])],
+                #     "area": abs(box2d['x2']-box2d['x1'])*abs(box2d['y2']-box2d['y1']),
+                #     "iscrowd": 0,
+                #     "category_id": self.cat_to_id_dict[category],#label['id'],
+                #     "image_id": ann_id,
+                #     "id": label_count,
+                #     "from_memory": from_memory
+                #     }
+                # objs.append(obj)
+                imgToAnns[ann_id].append(obj)
+                anns[label_count] = obj
+                try:
+                    catToImgs[self.cat_to_id_dict[category]].append(ann_id)
+                except:
+                    continue
+                
+                self.dataset['annotations'].append(obj)
+                label_count +=1
+                
+                # Set up images
+                imgs[ann_id] = {
+                                "file_name": self.list_of_img_paths[ann_id],
+                                "id": ann_id
+                }
+                self.dataset['images'].append(imgs[ann_id])
+
+
+            
         
         # Set up categories
         for cat in self.cat_to_id_dict.keys():
@@ -227,37 +316,78 @@ class OAKDetection(COCO):
         ## record["height"],record["width"] = height,width
 
         # Load annotation
-        f = open(ann_path,)
-        data = json.load(f)
-        f.close()
-        try:
-            # labels = data[0]['DataList'][0]['labels']
-            labels = data[0]['labels']
-        except: 
-            labels = data['DataList'][0]['labels']
-        objs = []
-        for label in labels:
-            obj_id = label['id']
-            # check if obj_id is in list of desired objects 
-            try:
-                assert int(obj_id) >= 0
-            except:
-                print('invalid obj_id:', obj_id)
-                continue
-            category = label['category']
-            box2d = label['box2d']
+        if type(ann_path) == str:
+            from_memory = False
 
-            if category in self.cat_to_id_dict.keys():
-                small_x = min(box2d['x1'],box2d['x2'])
-                small_y = min(box2d['y1'],box2d['y2'])
-                obj = {
-                    "bbox": [small_x, small_y, abs(box2d['x2']-box2d['x1']), abs(box2d['y2']-box2d['y1'])],
-                    # "bbox": [box2d['x1'], box2d['y1'], box2d['x2']-box2d['x1'], box2d['y2']-box2d['y1']],
-                    #"bbox_mode": BoxMode.XYXY_ABS,
-                    # "category_id": data_map[ limitset[category] ],
-                    "category_id": self.cat_to_id_dict[category]#label['id']
-                    }
-                objs.append(obj)
+            f = open(ann_path,)
+            data = json.load(f)
+            f.close()
+            try:
+                # labels = data[0]['DataList'][0]['labels']
+                labels = data[0]['labels']
+            except: 
+                labels = data['DataList'][0]['labels']
+            objs = []
+            for label in labels:
+                obj_id = label['id']
+                # check if obj_id is in list of desired objects 
+                try:
+                    assert int(obj_id) >= 0
+                except:
+                    print('invalid obj_id:', obj_id)
+                    continue
+                category = label['category']
+                box2d = label['box2d']
+
+                if category in self.cat_to_id_dict.keys():
+                    small_x = min(box2d['x1'],box2d['x2'])
+                    small_y = min(box2d['y1'],box2d['y2'])
+                    obj = {
+                        "bbox": [small_x, small_y, abs(box2d['x2']-box2d['x1']), abs(box2d['y2']-box2d['y1'])],
+                        # "bbox": [box2d['x1'], box2d['y1'], box2d['x2']-box2d['x1'], box2d['y2']-box2d['y1']],
+                        #"bbox_mode": BoxMode.XYXY_ABS,
+                        # "category_id": data_map[ limitset[category] ],
+                        "category_id": self.cat_to_id_dict[category],
+                        "from_memory": from_memory #label['id']
+                        }
+                    objs.append(obj)
+        else:
+            labels = ann_path
+            from_memory = True
+            objs = []
+            # for label in labels:
+                # obj_id = label['id']
+                # # check if obj_id is in list of desired objects 
+                # try:
+                #     assert int(obj_id) >= 0
+                # except:
+                #     print('invalid obj_id:', obj_id)
+                #     continue
+                # category = label['category']
+                # box2d = label['box2d']
+
+                # if category in self.cat_to_id_dict.keys():
+                #     small_x = min(box2d['x1'],box2d['x2'])
+                #     small_y = min(box2d['y1'],box2d['y2'])
+
+            obj = {
+                "bbox": labels['bbox'],
+                # "area": label['area'],
+                # "iscrowd": label['iscrowd'],
+                "category_id": labels['category_id'],#label['id'],
+                # "image_id": ann_id,
+                # "id": label_count,
+                "from_memory": from_memory
+                }
+                
+                # obj = {
+                #     "bbox": [small_x, small_y, abs(box2d['x2']-box2d['x1']), abs(box2d['y2']-box2d['y1'])],
+                #     # "bbox": [box2d['x1'], box2d['y1'], box2d['x2']-box2d['x1'], box2d['y2']-box2d['y1']],
+                #     #"bbox_mode": BoxMode.XYXY_ABS,
+                #     # "category_id": data_map[ limitset[category] ],
+                #     "category_id": self.cat_to_id_dict[category]#label['id']
+                #     }
+            objs.append(obj)
         
         # if len(objs) != 0:
         record["annotations"] = objs
@@ -336,6 +466,13 @@ class ConvertCocoPolysToMask(object):
     def __call__(self, image, target):
         w, h = image.size
 
+        # Whether a label is from memory
+        try:
+            from_memory = target['annotations'][0]['from_memory']
+        except:
+            # print('Seems like list is 0')
+            from_memory = 0
+
         image_id = target["image_id"]
         image_id = torch.tensor([image_id])
 
@@ -393,6 +530,7 @@ class ConvertCocoPolysToMask(object):
 
         target["orig_size"] = torch.as_tensor([int(h), int(w)])
         target["size"] = torch.as_tensor([int(h), int(w)])
+        target["from_memory"] = torch.as_tensor([int(from_memory == True)])
 
         return image, target
 
@@ -454,6 +592,7 @@ def build(image_set, args):
 
     selection_set = PATHS[image_set]
     selection_index = -1
+    train_settings = None
     if args.train_mode == 'incremental':
     
         
@@ -466,7 +605,20 @@ def build(image_set, args):
                 raise ValueError('args.selection_index does not exist, make sure it is in main')
         else:
             raise ValueError('Incorrect set provided')
+    
+    if args.train_mode in ['ic2','ewc']:
+        if image_set == 'val':
+            selection_index = -1
+        elif image_set =='train':
+            try:
+                selection_index = args.selection_index
+            except:
+                raise ValueError('args.selection_index does not exist, make sure it is in main')
+        else:
+            raise ValueError('Incorrect set provided')
+        train_settings = {'train_mode': 'ic2',
+                        'memory': args.ic2_memory}
 
     dataset = OAKDetection(img_folder = path_to_images, ann_file = path_to_annotations, selection_set = selection_set, transforms=make_coco_transforms(image_set), return_masks=args.masks,
-                            cache_mode=args.cache_mode, local_rank=get_local_rank(), local_size=get_local_size(),selection_index = selection_index)
+                            cache_mode=args.cache_mode, local_rank=get_local_rank(), local_size=get_local_size(),selection_index = selection_index, train_settings = train_settings)
     return dataset
