@@ -38,7 +38,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     
     for iteration in range(int(global_args.iterations)):
         header = 'Epoch: [{}]'.format(epoch) + '| Iteration: [{}]'.format(iteration)
-        print_freq = 10
+        print_freq = 1
         if global_args.distributed:
             sampler_train.set_epoch((int(epoch)*int(global_args.iterations) + int(iteration)))
         prefetcher = data_prefetcher(data_loader, device, prefetch=True)

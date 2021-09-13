@@ -394,7 +394,9 @@ def main(args):
             memory_ratio = get_cmratio(dataset_train)
             args.ewc_obj = None
             if memory_ratio > 0:
-                args.ewc_obj = EWC(model,data_loader_train,importance = args.ewc_importance, iterations = args.iterations, device = device, criterion = criterion)
+                # args.ewc_obj = EWC(model,data_loader_train,importance = args.ewc_importance, iterations = args.iterations, device = device, criterion = criterion)
+                args.ewc_obj = EWC(model,data_loader_memory,importance = args.ewc_importance, iterations = args.iterations, device = device, criterion = criterion)
+
         train_stats = train_one_epoch(
             model, criterion, data_loader_train, optimizer, device, epoch, args.clip_max_norm, args, sampler_train)
         lr_scheduler.step()
@@ -484,6 +486,7 @@ def main(args):
             data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                         collate_fn=utils.collate_fn, num_workers=args.num_workers,
                                         pin_memory=True)
+            
         if args.train_mode == 'ic2':
             test_stats, coco_evaluator = evaluate(
                 model, criterion, postprocessors, data_loader_val, base_ds, device, output_dir = os.path.join(args.output_dir, 'eval'), epoch_number = epoch
@@ -563,6 +566,8 @@ def main(args):
             args.ic2_memory = update_ic2_memory(dataset_train, args.ic2_memory, args.ic2_memory_size)
 
             dataset_train = build_dataset(image_set='train', args=args)
+
+            dataset_memory = build_dataset(image_set = 'memory', args = args)
             # dataset_val = build_dataset(image_set='val', args=args)
 
             if args.distributed:
@@ -580,6 +585,9 @@ def main(args):
                 sampler_train, args.batch_size, drop_last=True)
 
             data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
+                                        collate_fn=utils.collate_fn, num_workers=args.num_workers,
+                                        pin_memory=True)
+            data_loader_memory = DataLoader(dataset_memory, batch_sampler=batch_sampler_train,
                                         collate_fn=utils.collate_fn, num_workers=args.num_workers,
                                         pin_memory=True)
         # data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,

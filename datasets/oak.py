@@ -69,42 +69,44 @@ class OAKDetection(COCO):
         super().__init__()
         # Get the names of fromes from selection_set
         # Load the json file
-        f = open(selection_set,)
-        data = json.load(f)
-        f.close()
-        self.data_length = len(data)
-        if selection_index != -1:
-            try:
-                data = data[selection_index:selection_index+16]
-            except: 
-                data = data[selection_index:]
+
+        if selection_set:
+            f = open(selection_set,)
+            data = json.load(f)
+            f.close()
+            self.data_length = len(data)
+            if selection_index != -1:
+                try:
+                    data = data[selection_index:selection_index+16]
+                except: 
+                    data = data[selection_index:]
         
-        # # Get the train_settings
-        # if train_settings:
-        #     if train_settings['train_mode'] == 'ic2':
-        #         self.ic2_memory = train_settings['memory']
-        #         for taski, imgs in enumerate(self.ic2_memory):
-        #             if imgs != None:
-        #                 imgid = random.randint(0,len(imgs)-1)
-        #                 img  = imgs[imgid]
-        #                 filename, bbox = img
-        #                 # record = {}
-        #                 # record['file_name'] = filename
-        #                 # record['image_id'] = 'memory' + str(taski)
+            # # Get the train_settings
+            # if train_settings:
+            #     if train_settings['train_mode'] == 'ic2':
+            #         self.ic2_memory = train_settings['memory']
+            #         for taski, imgs in enumerate(self.ic2_memory):
+            #             if imgs != None:
+            #                 imgid = random.randint(0,len(imgs)-1)
+            #                 img  = imgs[imgid]
+            #                 filename, bbox = img
+            #                 # record = {}
+            #                 # record['file_name'] = filename
+            #                 # record['image_id'] = 'memory' + str(taski)
 
-        # Get paths to images
-        assert len(data) != 0, f'Error loading, selected files is {data}'
+            # Get paths to images
+            assert len(data) != 0, f'Error loading, selected files is {data}'
 
-        self.list_of_img_paths = list()
-        self.list_of_annotation_paths = list()
-        self.ids = list()
-        for frame in data:
-            # Parse the frame string to get the video name
-            video_name = frame.split('.')[0]
-            # Get the path to the image
-            self.list_of_img_paths.append(os.path.join(img_folder, video_name,'源文件', frame[:-4]+'jpg'))
-            self.ids.append(os.path.join(img_folder, video_name,'源文件', frame[:-4]+'jpg'))
-            self.list_of_annotation_paths.append(os.path.join(ann_file, video_name,'标注结果', frame[:-4]+'json'))
+            self.list_of_img_paths = list()
+            self.list_of_annotation_paths = list()
+            self.ids = list()
+            for frame in data:
+                # Parse the frame string to get the video name
+                video_name = frame.split('.')[0]
+                # Get the path to the image
+                self.list_of_img_paths.append(os.path.join(img_folder, video_name,'源文件', frame[:-4]+'jpg'))
+                self.ids.append(os.path.join(img_folder, video_name,'源文件', frame[:-4]+'jpg'))
+                self.list_of_annotation_paths.append(os.path.join(ann_file, video_name,'标注结果', frame[:-4]+'json'))
         
         # Get the train_settings
         if train_settings:
@@ -126,6 +128,21 @@ class OAKDetection(COCO):
                         # record = {}
                         # record['file_name'] = filename
                         # record['image_id'] = 'memory' + str(taski)
+            if train_settings['train_mode'] == 'memory':
+                self.ic2_memory = train_settings['memory']
+                for taski, imgs in enumerate(self.ic2_memory):
+                    if imgs != None:
+                        imgid = random.randint(0,len(imgs)-1)
+
+                        # print('image-------------', imgs)
+                        img  = imgs[imgid]
+                        filename, bbox = img
+                        self.list_of_img_paths.append(filename)
+                        self.ids.append(filename)
+
+                        # annotation_boundingbox = {'category':,
+                        #                         'bbox2d'}
+                        self.list_of_annotation_paths.append(bbox)
 
         assert len(self.list_of_img_paths) > 0, f'no images found at {img_folder}'
         assert len(self.list_of_annotation_paths) > 0, f'no images found at {ann_file}'
@@ -544,7 +561,7 @@ def make_coco_transforms(image_set):
 
     scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
 
-    if image_set == 'train':
+    if image_set in ['train', 'memory']:
         return T.Compose([
             T.RandomHorizontalFlip(),
             T.RandomSelect(
@@ -590,10 +607,15 @@ def build(image_set, args):
 
     path_to_annotations = os.path.join(root, 'new_anno')
 
-    selection_set = PATHS[image_set]
+    if image_set in ['train', 'val']:
+    
+        selection_set = PATHS[image_set]
+    else:
+        selection_set = None
+    
     selection_index = -1
     train_settings = None
-    if args.train_mode == 'incremental':
+    if args.train_mode in ['incremental','ewc']:
     
         
         if image_set == 'val':
@@ -603,10 +625,13 @@ def build(image_set, args):
                 selection_index = args.selection_index
             except:
                 raise ValueError('args.selection_index does not exist, make sure it is in main')
+        elif image_set == 'memory':
+            train_settings = {'train_mode': 'memory',
+                        'memory': args.ic2_memory}
         else:
             raise ValueError('Incorrect set provided')
     
-    if args.train_mode in ['ic2','ewc']:
+    if args.train_mode in ['ic2']:
         if image_set == 'val':
             selection_index = -1
         elif image_set =='train':
