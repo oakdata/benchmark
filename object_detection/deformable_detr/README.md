@@ -92,8 +92,6 @@ Training for Incremental
 GPUS_PER_NODE=8 ./tools/run_dist_slurm.sh PARTITION_NAME deform_detr 8 ./configs/r50_deformable_detr.sh --output_dir=output/incremental_oak_ft_10iter_bs8 --train_mode=incremental --batch_size=1 --iterations=10 --dataset_file=oak --lr=5e-5 --lr_backbone=5e-6 --lr_drop=1000 --oak_path=PATH_TO_DATASET --finetune=PATH_TO_FINETUNE_CHECKPOINT
 ```
 
-
-
 #### Some tips to speed-up training
 * You may increase the batch size to maximize the GPU utilization, according to GPU memory of yours, e.g., set '--batch_size 3' or '--batch_size 4'.
 
