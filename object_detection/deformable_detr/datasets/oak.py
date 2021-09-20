@@ -67,19 +67,54 @@ class OAKDetection(COCO):
     def __init__(self, img_folder, ann_file, transforms, return_masks, selection_set, cache_mode=False, local_rank=0, local_size=1,selection_index=-1,train_settings = None):
         
         super().__init__()
-        # Get the names of fromes from selection_set
-        # Load the json file
 
+        # Initialize variables
+        self.list_of_img_paths = list()
+        self.list_of_annotation_paths = list()
+        self.ids = list()
+
+        # If it is either training or validation 
         if selection_set:
-            f = open(selection_set,)
-            data = json.load(f)
-            f.close()
-            self.data_length = len(data)
+
+            # f = open(selection_set,)
+            # data = json.load(f)
+            # f.close()
+            # self.data_length = len(data)
+
+            # If it is the ewc/ic2/incremental methods
             if selection_index != -1:
-                try:
-                    data = data[selection_index:selection_index+16]
-                except: 
-                    data = data[selection_index:]
+                # data = os.listdir(os.path.join(img_folder,f'step_{selection_index.zfill(5)}'))
+
+                # Load the sorted data
+                data = [os.path.join(img_folder,f'step_{str(selection_index).zfill(5)}', image_in_step) for image_in_step in sorted(os.listdir(os.path.join(img_folder,f'step_{str(selection_index).zfill(5)}')),key=lambda x: int(x.split('.')[0].split('_')[-1]))]
+
+                # Get matching labels
+                data_label = [os.path.join(ann_file,f'step_{str(selection_index).zfill(5)}', image_in_step) for image_in_step in sorted(os.listdir(os.path.join(ann_file,f'step_{str(selection_index).zfill(5)}')),key=lambda x: int(x.split('.')[0].split('_')[-1]))]
+            
+            # If it is an offline training method
+            else:
+                # Go through all the steps and get all the images
+
+                # Check if it is the training or test set
+                if 'TEST' in img_folder:
+                    data = [os.path.join(img_folder, img_in_folder) for img_in_folder in sorted(os.listdir(img_folder),key=lambda x: int(x.split('.')[0].split('_')[-1]))]
+                    data_label = [os.path.join(ann_file, img_in_folder) for img_in_folder in sorted(os.listdir(ann_file),key=lambda x: int(x.split('.')[0].split('_')[-1]))]
+                
+                else:
+                    data = []
+                    data_label = []
+                    for step in sorted(os.listdir(img_folder),key = lambda x: int(x.split('_')[-1])):
+                        print(f'Retrieving Images from {step}')
+                        data = data + [os.path.join(img_folder,step, image_in_step) for image_in_step in sorted(os.listdir(os.path.join(img_folder,step)),key=lambda x: int(x.split('.')[0].split('_')[-1]))]
+                        data_label = data_label + [os.path.join(ann_file,step, image_in_step) for image_in_step in sorted(os.listdir(os.path.join(ann_file,step)),key=lambda x: int(x.split('.')[0].split('_')[-1]))]
+                
+        
+                    
+
+                # try:
+                #     data = data[selection_index:selection_index+16]
+                # except: 
+                #     data = data[selection_index:]
         
             # # Get the train_settings
             # if train_settings:
@@ -97,16 +132,12 @@ class OAKDetection(COCO):
             # Get paths to images
             assert len(data) != 0, f'Error loading, selected files is {data}'
 
-            self.list_of_img_paths = list()
-            self.list_of_annotation_paths = list()
-            self.ids = list()
-            for frame in data:
-                # Parse the frame string to get the video name
-                video_name = frame.split('.')[0]
-                # Get the path to the image
-                self.list_of_img_paths.append(os.path.join(img_folder, video_name,'源文件', frame[:-4]+'jpg'))
-                self.ids.append(os.path.join(img_folder, video_name,'源文件', frame[:-4]+'jpg'))
-                self.list_of_annotation_paths.append(os.path.join(ann_file, video_name,'标注结果', frame[:-4]+'json'))
+            # Get matching labels and images
+
+            self.list_of_img_paths = data
+            self.ids = data
+            self.list_of_annotation_paths = data_label
+            
         
         # Get the train_settings
         if train_settings:
@@ -172,11 +203,14 @@ class OAKDetection(COCO):
                 f = open(ann_path,)
                 data = json.load(f)
                 f.close()
-                try:
-                # labels = data[0]['DataList'][0]['labels']
-                    labels = data[0]['labels']
-                except: 
-                    labels = data['DataList'][0]['labels']
+
+                labels = data
+                # try:
+                # # labels = data[0]['DataList'][0]['labels']
+                #     print(data)
+                #     labels = data[0]['labels']
+                # except: 
+                #     labels = data['DataList'][0]['labels']
                 from_memory = False
             
                 # objs = []
@@ -339,11 +373,12 @@ class OAKDetection(COCO):
             f = open(ann_path,)
             data = json.load(f)
             f.close()
-            try:
-                # labels = data[0]['DataList'][0]['labels']
-                labels = data[0]['labels']
-            except: 
-                labels = data['DataList'][0]['labels']
+            labels = data
+            # try:
+            #     # labels = data[0]['DataList'][0]['labels']
+            #     labels = data[0]['labels']
+            # except: 
+            #     labels = data['DataList'][0]['labels']
             objs = []
             for label in labels:
                 obj_id = label['id']
@@ -597,20 +632,24 @@ def build(image_set, args):
     #     "train": (os.path.join(root, 'debug', 'relabel', 'train_frame.json')),
     #     "val": (os.path.join(root, 'debug', 'relabel' , 'test_frame.json'))
     #     }
-    PATHS = {
-        "train": (os.path.join(root, 'relabel', 'train_frame.json')),
-        "val": (os.path.join(root, 'relabel' , 'test_frame.json'))
-        }
+    # PATHS = {
+    #     "train": (os.path.join(root, 'relabel', 'train_frame.json')),
+    #     "val": (os.path.join(root, 'relabel' , 'test_frame.json'))
+    #     }
 
     # path_to_images = os.path.join(root, 'new_data')
-    path_to_images = os.path.join(root, 'jianren_oak')
 
-    path_to_annotations = os.path.join(root, 'new_anno')
-
-    if image_set in ['train', 'val']:
+    selection_set = True
+    if image_set == 'train':
+        path_to_images = os.path.join(root, 'OAK_FRAME_N', 'Raw')
+        path_to_annotations = os.path.join(root, 'OAK_LABEL_N')
     
-        selection_set = PATHS[image_set]
+    elif image_set == 'val':
+        path_to_images = os.path.join(root, 'OAK_TEST', 'Raw')
+        path_to_annotations = os.path.join(root, 'OAK_TEST', 'Label')
+
     else:
+        raise ValueError(f'image set cannot be {image_set}')
         selection_set = None
     
     selection_index = -1

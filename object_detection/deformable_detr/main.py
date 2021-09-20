@@ -330,7 +330,7 @@ def main(args):
             for pg, pg_old in zip(optimizer.param_groups, p_groups):
                 pg['lr'] = pg_old['lr']
                 pg['initial_lr'] = pg_old['initial_lr']
-            print(optimizer.param_groups)
+            # print(optimizer.param_groups)
             lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
             # todo: this is a hack for doing experiment that resume from checkpoint and also modify lr scheduler (e.g., decrease lr in advance).
             args.override_resumed_lr_drop = True
@@ -376,7 +376,8 @@ def main(args):
         end_epoch = args.epochs
     else:
         #elif args.train_mode == 'incremental':
-        end_epoch = int(dataset_train.data_length/16) + 1
+        end_epoch = 1997
+        #int(dataset_train.data_length/16) + 1
 
 
     
@@ -465,7 +466,7 @@ def main(args):
                             for name in filenames:
                                 torch.save(coco_evaluator.coco_eval["bbox"].eval,
                                         output_dir / "eval" / name)
-            args.selection_index +=16
+            args.selection_index +=1
             dataset_train = build_dataset(image_set='train', args=args)
             # dataset_val = build_dataset(image_set='val', args=args)
 
@@ -511,7 +512,7 @@ def main(args):
                         for name in filenames:
                             torch.save(coco_evaluator.coco_eval["bbox"].eval,
                                     output_dir / "eval" / name)
-            args.selection_index +=16
+            args.selection_index +=1
 
             # Update memory
             args.ic2_memory = update_ic2_memory(dataset_train, args.ic2_memory, args.ic2_memory_size)
@@ -560,7 +561,7 @@ def main(args):
                         for name in filenames:
                             torch.save(coco_evaluator.coco_eval["bbox"].eval,
                                     output_dir / "eval" / name)
-            args.selection_index +=16
+            args.selection_index +=1
 
             # Update memory
             args.ic2_memory = update_ic2_memory(dataset_train, args.ic2_memory, args.ic2_memory_size)
