@@ -73,14 +73,34 @@ GPUS_PER_NODE=8 ./tools/run_dist_launch.sh 8 ./configs/r50_deformable_detr.sh --
 If you are using slurm cluster, you can simply run the following command to train on 1 node with 8 GPUs, while resuming from specific checkpoint (if resume is not needed, simply remove the flag):
 
 ```bash
-GPUS_PER_NODE=8 ./tools/run_dist_slurm_grogu.sh abhinav deform_detr 8 ./configs/r50_deformable_detr.sh --output_dir=output/incremental_oak_1 --train_mode=incremental --batch_size=2 --iterations=10 --dataset_file=oak --oak_path=/grogu/user/jianrenw/data --lr=1e-4 --lr_backbone=1e-5 --lr_drop=1000 --resume /path/to/checkpoint/checkpoint.pth
+GPUS_PER_NODE=8 ./tools/run_dist_slurm.sh PARTITION_NAME deform_detr 8 ./configs/r50_deformable_detr.sh --output_dir=output/incremental_oak_1 --train_mode=incremental --batch_size=2 --iterations=10 --dataset_file=oak --oak_path=/grogu/user/jianrenw/data --lr=1e-4 --lr_backbone=1e-5 --lr_drop=1000 --resume /path/to/checkpoint/checkpoint.pth
 ```
+
+#### Specific Training Examples
+Training for iCaRL
+```bash
+GPUS_PER_NODE=8 ./tools/run_dist_slurm.sh PARTITION_NAME deform_detr 8 ./configs/r50_deformable_detr.sh --output_dir=output/ic2_oak_ft_10iter_bs8 --train_mode=ic2 --batch_size=1 --iterations=10 --dataset_file=oak --lr=5e-5 --lr_backbone=5e-6 --lr_drop=1000 --oak_path=PATH_TO_DATASET --finetune=PATH_TO_FINETUNE_CHECKPOINT
+```
+
+Training for EWC
+```bash
+GPUS_PER_NODE=8 ./tools/run_dist_slurm.sh PARTITION_NAME deform_detr 8 ./configs/r50_deformable_detr.sh --output_dir=output/ewc_oak_ft_10iter_bs8 --train_mode=ewc --batch_size=1 --iterations=10 --dataset_file=oak --lr=5e-5 --lr_backbone=5e-6 --lr_drop=1000 --oak_path=PATH_TO_DATASET --finetune=PATH_TO_FINETUNE_CHECKPOINT
+```
+
+Training for Incremental
+```bash
+GPUS_PER_NODE=8 ./tools/run_dist_slurm.sh PARTITION_NAME deform_detr 8 ./configs/r50_deformable_detr.sh --output_dir=output/incremental_oak_ft_10iter_bs8 --train_mode=incremental --batch_size=1 --iterations=10 --dataset_file=oak --lr=5e-5 --lr_backbone=5e-6 --lr_drop=1000 --oak_path=PATH_TO_DATASET --finetune=PATH_TO_FINETUNE_CHECKPOINT
+```
+
+
 
 #### Some tips to speed-up training
 * You may increase the batch size to maximize the GPU utilization, according to GPU memory of yours, e.g., set '--batch_size 3' or '--batch_size 4'.
 
 ### Evaluation
-
+We provide two scripts for evaluation:
+* CAP Analysis: ```./analysis/cap.py```
+* Forgetfulness Analysis: ```./analysis/forgetting.py```
 
 ## Citing Wanderlust
 If you find this baseline useful in your research, please consider citing
